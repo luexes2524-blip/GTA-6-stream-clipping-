@@ -10,7 +10,7 @@ MAX_HOURS, LOOKBACK = float(E("MAX_STREAM_HOURS", "4")), int(E("LOOKBACK_DAYS", 
 PRIVACY = E("YT_PRIVACY", "private")
 API = "https://www.googleapis.com/youtube/v3"
 H = {"apikey": SBK, "Authorization": f"Bearer {SBK}", "Content-Type": "application/json"}
-YTDLP = YTDLP = ["yt-dlp", "--no-warnings", "--js-runtimes", "node",
+YTDLP = ["yt-dlp", "--no-warnings", "--js-runtimes", "node",
          "--extractor-args", "youtube:player_client=android_vr,tv,web_safari"]
 
 
@@ -48,21 +48,30 @@ def iso_seconds(d):
     return g[0] * 86400 + g[1] * 3600 + g[2] * 60 + g[3]
 
 
-def     discover()
-    todo = db("GET", "clips", params={"public_url": "is.null", "source_url": "not.is.null",
-                                      "or": "(storage_path.is.null,storage_path.like.failed*cookies*)",
-                                      "order": "created_at.asc", "limit": "5"})
-    for row in todo:
+def discover():
+    for line in pathlib.Path("channels.txt").read_text().splitlines():
+        h = line.split("#")[0].strip()
+        if not h:
+            continue
         try:
-            if process(row):
-                break
+            up = yt("channels", part="contentDetails", forHandle=h)["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+            ids = [i["contentDetails"]["videoId"] for i in yt("playlistItems", part="contentDetails", playlistId=up, maxResults=10)["items"]]
+            for v in yt("videos", part="snippet,liveStreamingDetails", id=",".join(ids))["items"]:
+                if "liveStreamingDetails" not in v:
+                    continue
+                state, end = v["snippet"]["liveBroadcastContent"], v["liveStreamingDetails"].get("actualEndTime")
+                print(h, "|", v["snippet"]["title"][:50], "|", state)
+                if state != "none" or not end:
+                    continue  # still live: wait until it ends
+                if datetime.fromisoformat(end.replace("Z", "+00:00")) < datetime.now(timezone.utc) - timedelta(days=LOOKBACK):
+                    continue
+                url = f"https://www.youtube.com/watch?v={v['id']}"
+                if not db("GET", "clips", params={"source_url": f"eq.{url}", "select": "id"}):
+                    db("POST", "clips", json={"title": v["snippet"]["title"], "source_url": url})
         except Exception as e:
-            msg = str(e)
-            if "confirm" in msg or "cookies" in msg.lower():
-                print("YouTube blocked this server, will retry on the next run:", msg[:150])
-                continue
-            fail(row, msg)
-            break
+            print("channel error", h, e)
+
+
 def peaks(path):
     BIN, bins = 20, {}
     for line in open(path, encoding="utf-8"):
@@ -161,12 +170,17 @@ if __name__ == "__main__":
     if not (YT_KEY and SB and SBK):
         sys.exit("Missing secrets: need YOUTUBE_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY")
     discover()
-    todo = db("GET", "clips", params={"public_url": "is.null", "storage_path": "is.null", "source_url": "not.is.null",
+    todo = db("GET", "clips", params={"public_url": "is.null", "source_url": "not.is.null",
+                                      "or": "(storage_path.is.null,storage_path.like.failed*cookies*)",
                                       "order": "created_at.asc", "limit": "5"})
     for row in todo:
         try:
             if process(row):
                 break
         except Exception as e:
-            fail(row, str(e))
+            msg = str(e)
+            if "confirm" in msg or "cookies" in msg.lower():
+                print("YouTube blocked this server, will retry on the next run:", msg[:150])
+                continue
+            fail(row, msg)
             break
