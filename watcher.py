@@ -10,7 +10,8 @@ MAX_HOURS, LOOKBACK = float(E("MAX_STREAM_HOURS", "4")), int(E("LOOKBACK_DAYS", 
 PRIVACY = E("YT_PRIVACY", "private")
 API = "https://www.googleapis.com/youtube/v3"
 H = {"apikey": SBK, "Authorization": f"Bearer {SBK}", "Content-Type": "application/json"}
-YTDLP = ["yt-dlp", "--no-warnings", "--js-runtimes", "node"]
+YTDLP = YTDLP = ["yt-dlp", "--no-warnings", "--js-runtimes", "node",
+         "--extractor-args", "youtube:player_client=android_vr,tv,web_safari"]
 
 
 def run(cmd):
